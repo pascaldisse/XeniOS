@@ -8,6 +8,7 @@
  */
 
 #include <cstdio>
+#include <cstring>
 
 #include "xenia/base/logging.h"
 #include "xenia/kernel/info/file.h"
@@ -801,9 +802,30 @@ static void XeniosStfsTrace(const ppc_context_t& ctx, const char* fn,
   fflush(stderr);
 }
 
+// Guest handle of the fake STFS device object we hand back from
+// StfsCreateDevice. The title passes this value to StfsControlDevice as the
+// device, so it must be non-zero (returning 0 looks like a failed/NULL device
+// to the content worker, which then never completes).
+static uint32_t g_xenios_stfs_device = 0;
+
 dword_result_t StfsCreateDevice_entry(const ppc_context_t& ctx) {
   XeniosStfsTrace(ctx, "StfsCreateDevice", 8);
-  return X_STATUS_SUCCESS;
+  // Allocate a small zeroed guest object and hand its pointer back as the
+  // device handle. Experiment: see whether a non-null device lets the title's
+  // content/cache worker proceed (flips the *(0xC2165FAC) completion flag the
+  // main thread polls), and whether the title dereferences the handle.
+  if (!g_xenios_stfs_device) {
+    auto* mem = ctx->kernel_state->memory();
+    g_xenios_stfs_device = mem->SystemHeapAlloc(0x100);
+    if (g_xenios_stfs_device) {
+      auto* obj = mem->TranslateVirtual<uint8_t*>(g_xenios_stfs_device);
+      std::memset(obj, 0, 0x100);
+    }
+  }
+  fprintf(stderr, "XENIOS-STFS StfsCreateDevice -> device=%08X\n",
+          g_xenios_stfs_device);
+  fflush(stderr);
+  return g_xenios_stfs_device;
 }
 DECLARE_XBOXKRNL_EXPORT1(StfsCreateDevice, kFileSystem, kStub);
 
