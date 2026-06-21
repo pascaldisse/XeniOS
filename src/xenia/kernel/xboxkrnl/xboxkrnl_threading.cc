@@ -956,6 +956,43 @@ dword_result_t NtCancelTimer_entry(dword_t timer_handle,
 }
 DECLARE_XBOXKRNL_EXPORT1(NtCancelTimer, kThreading, kImplemented);
 
+static uint32_t xeKeSetTimerEx(pointer_t<X_KTIMER> timer_ptr, uint64_t due_time,
+                               uint32_t period_ms, pointer_t<XDPC> dpc_ptr) {
+  auto timer = XObject::GetNativeObject<XTimer>(kernel_state(), timer_ptr);
+  if (!timer) {
+    return 0;
+  }
+  uint32_t routine = dpc_ptr ? static_cast<uint32_t>(dpc_ptr->routine) : 0;
+  uint32_t routine_arg =
+      dpc_ptr ? static_cast<uint32_t>(dpc_ptr->context) : 0;
+  X_STATUS result = timer->SetTimer(static_cast<int64_t>(due_time), period_ms,
+                                    routine, routine_arg, false);
+  return result == X_STATUS_SUCCESS ? 1 : 0;
+}
+
+dword_result_t KeSetTimerEx_entry(pointer_t<X_KTIMER> timer_ptr,
+                                  qword_t due_time, dword_t period_ms,
+                                  pointer_t<XDPC> dpc_ptr) {
+  return xeKeSetTimerEx(timer_ptr, due_time, period_ms, dpc_ptr);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeSetTimerEx, kThreading, kImplemented);
+
+dword_result_t KeSetTimer_entry(pointer_t<X_KTIMER> timer_ptr, qword_t due_time,
+                                pointer_t<XDPC> dpc_ptr) {
+  return xeKeSetTimerEx(timer_ptr, due_time, 0, dpc_ptr);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeSetTimer, kThreading, kImplemented);
+
+dword_result_t KeCancelTimer_entry(pointer_t<X_KTIMER> timer_ptr) {
+  auto timer = XObject::GetNativeObject<XTimer>(kernel_state(), timer_ptr);
+  if (!timer) {
+    return 0;
+  }
+  timer->Cancel();
+  return 0;
+}
+DECLARE_XBOXKRNL_EXPORT1(KeCancelTimer, kThreading, kImplemented);
+
 uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
                                  uint32_t processor_mode, uint32_t alertable,
                                  uint64_t* timeout_ptr) {
