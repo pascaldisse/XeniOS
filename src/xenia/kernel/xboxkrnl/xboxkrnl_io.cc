@@ -760,6 +760,50 @@ void IoDeleteDevice_entry(dword_t device_ptr, const ppc_context_t& ctx) {
 
 DECLARE_XBOXKRNL_EXPORT1(IoDeleteDevice, kFileSystem, kStub);
 
+// ---------------------------------------------------------------------------
+// STFS content-device kernel exports.
+//
+// Some launch titles (e.g. The Darkness, title 545407EE) call these directly
+// during title-cache / content initialization instead of going through the
+// XMountUtilityDrive path that IoCreateDevice/NtDeviceIoControlFile already
+// stub out. Previously these were entirely unimplemented ("undefined extern
+// call"), which left the title's main thread spinning forever in a
+// KeDelayExecutionThread poll loop waiting on content init to signal.
+//
+// Phase 1 (instrumentation): log the raw guest arguments so the real calling
+// convention and expected return values can be reverse-engineered, while
+// returning success so the title proceeds. The grep tag "XENIOS-STFS" makes
+// these easy to find in xenia.log.
+// ---------------------------------------------------------------------------
+dword_result_t StfsCreateDevice_entry(const ppc_context_t& ctx) {
+  XELOGI(
+      "XENIOS-STFS StfsCreateDevice r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
+      "r7={:08X} r8={:08X} r9={:08X} r10={:08X}",
+      uint32_t(ctx->r[3]), uint32_t(ctx->r[4]), uint32_t(ctx->r[5]),
+      uint32_t(ctx->r[6]), uint32_t(ctx->r[7]), uint32_t(ctx->r[8]),
+      uint32_t(ctx->r[9]), uint32_t(ctx->r[10]));
+  return X_STATUS_SUCCESS;
+}
+DECLARE_XBOXKRNL_EXPORT1(StfsCreateDevice, kFileSystem, kStub);
+
+dword_result_t StfsControlDevice_entry(const ppc_context_t& ctx) {
+  XELOGI(
+      "XENIOS-STFS StfsControlDevice r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
+      "r7={:08X} r8={:08X} r9={:08X} r10={:08X}",
+      uint32_t(ctx->r[3]), uint32_t(ctx->r[4]), uint32_t(ctx->r[5]),
+      uint32_t(ctx->r[6]), uint32_t(ctx->r[7]), uint32_t(ctx->r[8]),
+      uint32_t(ctx->r[9]), uint32_t(ctx->r[10]));
+  return X_STATUS_SUCCESS;
+}
+DECLARE_XBOXKRNL_EXPORT1(StfsControlDevice, kFileSystem, kStub);
+
+dword_result_t IoDismountVolumeByFileHandle_entry(const ppc_context_t& ctx) {
+  XELOGI("XENIOS-STFS IoDismountVolumeByFileHandle r3={:08X} r4={:08X}",
+         uint32_t(ctx->r[3]), uint32_t(ctx->r[4]));
+  return X_STATUS_SUCCESS;
+}
+DECLARE_XBOXKRNL_EXPORT1(IoDismountVolumeByFileHandle, kFileSystem, kStub);
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe
