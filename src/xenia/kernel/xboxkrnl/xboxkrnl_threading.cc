@@ -7,10 +7,16 @@
  ******************************************************************************
  */
 
+#include <cstdio>
+#include <mutex>
+#include <unordered_set>
+
 #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/base/atomic.h"
 #include "xenia/base/clock.h"
 #include "xenia/base/platform.h"
+#include "xenia/base/string_buffer.h"
+#include "xenia/cpu/ppc/ppc_opcode_info.h"
 #include "xenia/cpu/processor.h"
 #include "xenia/kernel/guest_scheduler.h"
 #include "xenia/kernel/util/shim_utils.h"
@@ -450,6 +456,49 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
                                             dword_t alertable,
                                             lpqword_t interval_ptr,
                                             const ppc_context_t& context) {
+  // XENIOS debug: log each unique guest caller (LR) of KeDelayExecutionThread
+  // so the title's busy-wait poll loop can be located and disassembled.
+  {
+    static std::mutex s_delay_mu;
+    static std::unordered_set<uint64_t> s_delay_seen;
+    uint64_t lr = context->lr;
+    std::lock_guard<std::mutex> lk(s_delay_mu);
+    if (s_delay_seen.insert(lr).second) {
+      auto* t = XThread::GetCurrentThread();
+      fprintf(stderr, "XENIOS-DELAY lr=%08X thread='%s' tid=%08X mode=%u alert=%u\n",
+              uint32_t(lr), t ? t->name().c_str() : "?",
+              t ? t->thread_id() : 0u, uint32_t(processor_mode),
+              uint32_t(alertable));
+      // Scan the guest stack for return addresses (0x82xxxxxx) to reconstruct
+      // the call chain above the Sleep() wrapper, then disassemble a window
+      // around each so the busy-wait poll loop and its memory flag can be found.
+      auto read32 = [&](uint32_t a) -> uint32_t {
+        auto* p = context->TranslateVirtual<const uint8_t*>(a);
+        if (!p) return 0;
+        return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
+               (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+      };
+      uint32_t sp = uint32_t(context->r[1]);
+      fprintf(stderr, "XENIOS-STACK sp=%08X\n", sp);
+      // Dump every stack slot with its dereferenced word. The poll loop's flag
+      // pointer (r10+0x34) was spilled here by the Sleep prologue; it points at
+      // a location currently holding 0 (the flag the main thread waits on).
+      for (uint32_t off = 0; off <= 0xC0; off += 4) {
+        uint32_t v = read32(sp + off);
+        if (v >= 0x10000 && v < 0xC0000000) {
+          uint32_t deref = read32(v);
+          fprintf(stderr, "XENIOS-SLOT [sp+%03X]=%08X *=%08X\n", off, v, deref);
+        } else {
+          fprintf(stderr, "XENIOS-SLOT [sp+%03X]=%08X\n", off, v);
+        }
+      }
+      // Also dump full guest GPRs to catch the object pointer (r10) directly.
+      for (int i = 0; i < 32; ++i) {
+        fprintf(stderr, "XENIOS-GPR r%-2d=%08X\n", i, uint32_t(context->r[i]));
+      }
+      fflush(stderr);
+    }
+  }
   uint64_t interval = interval_ptr ? static_cast<uint64_t>(*interval_ptr) : 0u;
   return KeDelayExecutionThread(processor_mode, alertable,
                                 interval_ptr ? &interval : nullptr, context);

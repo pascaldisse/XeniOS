@@ -508,6 +508,19 @@ void CommandProcessor::WorkerThreadMain() {
     }
 
     uint32_t write_ptr_index = write_ptr_index_.load();
+    {
+      // XENIOS debug: periodically report the ring-buffer pointers so we can
+      // tell whether the title is kicking the GPU (write_ptr advancing) and
+      // whether the CP is consuming it (read_ptr advancing / writeback firing).
+      static std::atomic<uint32_t> s_gpu_dbg{0};
+      uint32_t n = s_gpu_dbg.fetch_add(1);
+      if ((n & 0x3FF) == 0) {
+        fprintf(stderr,
+                "XENIOS-GPU rb write_ptr=%08X read_ptr=%08X wb_ptr=%08X\n",
+                write_ptr_index, read_ptr_index_, read_ptr_writeback_ptr_);
+        fflush(stderr);
+      }
+    }
     if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
       SCOPE_profile_cpu_i("gpu", "xe::gpu::CommandProcessor::Stall");
       // We've run out of commands to execute.
@@ -632,6 +645,10 @@ void CommandProcessor::EnableReadPointerWriteBack(uint32_t ptr,
                                                   uint32_t block_size_log2) {
   // CP_RB_RPTR_ADDR Ring Buffer Read Pointer Address 0x70C
   // ptr = RB_RPTR_ADDR, pointer to write back the address to.
+  fprintf(stderr,
+          "XENIOS-GPU EnableReadPointerWriteBack ptr=%08X block_size_log2=%u\n",
+          ptr, block_size_log2);
+  fflush(stderr);
   read_ptr_writeback_ptr_ = ptr;
   // CP_RB_CNTL Ring Buffer Control 0x704
   // block_size = RB_BLKSZ, log2 of number of quadwords read between updates of
