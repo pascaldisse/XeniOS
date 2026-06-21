@@ -412,7 +412,42 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
                   : std::chrono::milliseconds::max();
 
   X_KTHREAD* kthread = WaitEnter(wait_reason, processor_mode, alertable);
-  auto result =
+  xe::threading::WaitResult result;
+#if !XE_PLATFORM_WIN32
+  if (alertable && XThread::IsInThread()) {
+    // pthread condition waits aren't interrupted reliably by signals (and
+    // pthread_cond_wait never reports EINTR on Darwin). Poll in short slices
+    // so a queued guest user APC can terminate an alertable wait just as
+    // WaitForSingleObjectEx(..., alertable=TRUE) does on Windows.
+    auto* current_thread = XThread::GetCurrentThread();
+    const bool infinite = timeout_ms == std::chrono::milliseconds::max();
+    const auto deadline = infinite ? std::chrono::steady_clock::time_point::max()
+                                   : std::chrono::steady_clock::now() + timeout_ms;
+    while (true) {
+      if (current_thread->HasPendingUserApc()) {
+        result = xe::threading::WaitResult::kUserCallback;
+        break;
+      }
+      auto slice = std::chrono::milliseconds(10);
+      if (!infinite) {
+        auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+          result = xe::threading::WaitResult::kTimeout;
+          break;
+        }
+        slice = std::min(
+            slice, std::chrono::duration_cast<std::chrono::milliseconds>(
+                       deadline - now));
+      }
+      result = xe::threading::Wait(wait_handle, true, slice);
+      if (result != xe::threading::WaitResult::kTimeout) {
+        break;
+      }
+    }
+  } else
+#endif
+  {
+    result =
 #if XE_PLATFORM_IOS
       WaitWithTitleStopPollIOS(
           kernel_state_, timeout_ms,
@@ -423,6 +458,7 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
 #else
       xe::threading::Wait(wait_handle, alertable ? true : false, timeout_ms);
 #endif  // XE_PLATFORM_IOS
+  }
 
   switch (result) {
     case xe::threading::WaitResult::kSuccess:

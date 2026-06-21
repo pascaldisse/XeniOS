@@ -491,13 +491,10 @@ class PosixCondition<Event> : public PosixConditionBase {
   bool Signal() override {
     auto lock = std::unique_lock(mutex_);
     signal_ = true;
-    // Manual-reset events must release all waiters while signaled. Auto-reset
-    // events consume one signal, so waking one waiter avoids broadcast churn.
-    if (manual_reset_) {
-      cond_.notify_all();
-    } else {
-      cond_.notify_one();
-    }
+    // Broadcast auto-reset signals as well so any runnable waiter may consume
+    // the state change. The predicate and post_execution run under mutex_, so
+    // exactly one waiter resets the signal and the others continue waiting.
+    cond_.notify_all();
     return true;
   }
 
