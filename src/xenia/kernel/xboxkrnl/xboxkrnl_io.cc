@@ -7,6 +7,8 @@
  ******************************************************************************
  */
 
+#include <cstdio>
+
 #include "xenia/base/logging.h"
 #include "xenia/kernel/info/file.h"
 #include "xenia/kernel/kernel_state.h"
@@ -775,31 +777,44 @@ DECLARE_XBOXKRNL_EXPORT1(IoDeleteDevice, kFileSystem, kStub);
 // returning success so the title proceeds. The grep tag "XENIOS-STFS" makes
 // these easy to find in xenia.log.
 // ---------------------------------------------------------------------------
+// Unbuffered stderr trace that survives an abrupt process exit (the async
+// XELOG ring buffer drops its tail when the title terminates). Also dumps a
+// few words of guest memory at pointer-looking arguments so the device-name /
+// parameter structures can be decoded.
+static void XeniosStfsTrace(const ppc_context_t& ctx, const char* fn,
+                            int argc) {
+  fprintf(stderr, "XENIOS-STFS %s", fn);
+  for (int i = 0; i < argc; ++i) {
+    fprintf(stderr, " r%d=%08X", 3 + i, uint32_t(ctx->r[3 + i]));
+  }
+  fprintf(stderr, "\n");
+  for (int i = 0; i < argc; ++i) {
+    uint32_t addr = uint32_t(ctx->r[3 + i]);
+    // Only peek at plausible guest virtual addresses (stack / heap).
+    if (addr < 0x10000 || addr >= 0xC0000000) continue;
+    auto* p = ctx->TranslateVirtual<const uint8_t*>(addr);
+    if (!p) continue;
+    fprintf(stderr, "XENIOS-STFS   [r%d=%08X] =", 3 + i, addr);
+    for (int b = 0; b < 24; ++b) fprintf(stderr, " %02X", p[b]);
+    fprintf(stderr, "\n");
+  }
+  fflush(stderr);
+}
+
 dword_result_t StfsCreateDevice_entry(const ppc_context_t& ctx) {
-  XELOGI(
-      "XENIOS-STFS StfsCreateDevice r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
-      "r7={:08X} r8={:08X} r9={:08X} r10={:08X}",
-      uint32_t(ctx->r[3]), uint32_t(ctx->r[4]), uint32_t(ctx->r[5]),
-      uint32_t(ctx->r[6]), uint32_t(ctx->r[7]), uint32_t(ctx->r[8]),
-      uint32_t(ctx->r[9]), uint32_t(ctx->r[10]));
+  XeniosStfsTrace(ctx, "StfsCreateDevice", 8);
   return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT1(StfsCreateDevice, kFileSystem, kStub);
 
 dword_result_t StfsControlDevice_entry(const ppc_context_t& ctx) {
-  XELOGI(
-      "XENIOS-STFS StfsControlDevice r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
-      "r7={:08X} r8={:08X} r9={:08X} r10={:08X}",
-      uint32_t(ctx->r[3]), uint32_t(ctx->r[4]), uint32_t(ctx->r[5]),
-      uint32_t(ctx->r[6]), uint32_t(ctx->r[7]), uint32_t(ctx->r[8]),
-      uint32_t(ctx->r[9]), uint32_t(ctx->r[10]));
+  XeniosStfsTrace(ctx, "StfsControlDevice", 8);
   return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT1(StfsControlDevice, kFileSystem, kStub);
 
 dword_result_t IoDismountVolumeByFileHandle_entry(const ppc_context_t& ctx) {
-  XELOGI("XENIOS-STFS IoDismountVolumeByFileHandle r3={:08X} r4={:08X}",
-         uint32_t(ctx->r[3]), uint32_t(ctx->r[4]));
+  XeniosStfsTrace(ctx, "IoDismountVolumeByFileHandle", 2);
   return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT1(IoDismountVolumeByFileHandle, kFileSystem, kStub);
