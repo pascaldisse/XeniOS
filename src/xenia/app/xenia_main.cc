@@ -77,10 +77,15 @@ DEFINE_string(gpu, "vulkan", "Graphics system. Use: " GPU_OPTIONS, "GPU");
 DEFINE_string(hid, "sdl", "Input system. Use: " HID_OPTIONS, "HID");
 #elif XE_PLATFORM_MAC
 #define APU_OPTIONS "[sdl, nop]"
-#define GPU_OPTIONS "[metal, vulkan, null]"
+#define GPU_OPTIONS "[vulkan, metal, null]"
 #define HID_OPTIONS "[sdl, nop]"
 DEFINE_string(apu, "sdl", "Audio system. Use: " APU_OPTIONS, "APU");
-DEFINE_string(gpu, "metal", "Graphics system. Use: " GPU_OPTIONS, "GPU");
+// Default to the Vulkan backend (via MoltenVK) on macOS: it is the mature,
+// upstream-maintained path and correctly handles the float24 depth-prepass /
+// EDRAM equal-depth passes that the native Metal backend does not yet emulate
+// (e.g. The Darkness's lit menu geometry renders black under "metal" but
+// correct under "vulkan"). The native Metal backend remains selectable.
+DEFINE_string(gpu, "vulkan", "Graphics system. Use: " GPU_OPTIONS, "GPU");
 DEFINE_string(hid, "sdl", "Input system. Use: " HID_OPTIONS, "HID");
 #else
 #define APU_OPTIONS "[sdl, nop]"
